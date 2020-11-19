@@ -11,7 +11,7 @@ const angle = 5; // Incline of the case in degrees
 const widthx=3.5, widthy = 5; // Width of the sides
 const out = 14; // How much the case pops out from the lower pcb level. Lower this for low profile case
 const depth = 5; // How much lower the case goes from the pcb
-const leeway = 0; // Amount of extra space from sides to pcb/plate
+const leeway = 0.5; // Amount of extra space from sides to pcb/plate
 const bottomThickness = 3; // Thickness of the bottom
 
 // Calculations. Don't change this
@@ -20,6 +20,19 @@ const height = out + depth + outery * tan(angle);
 
 // Helper function for calculating the level of the top of the bottom at a certain y coordinate
 let bedAtY = y => (y + widthy + leeway + 1) * tan(angle) + depth - bottomThickness;
+
+// Procedural infrastructure
+
+// Empty object
+const ep = 1;
+const far = -1000;
+let empty = () => cube({size:[ep,ep,ep]}).translate([far, far, far]);
+
+let apply = (...shapes) => {
+    let x = empty();
+    shapes.forEach(s => x = s(x));
+    return difference(x, empty());
+}
 
 // The socket for screw
 let screwHolePillar = (x, y) => {
@@ -48,16 +61,16 @@ let screwLocations = [
     [259, 65],
 ].map(x => [284 - x[0], 1 + x[1]]);
 
-let screwHoles = () => {
-    return union(...screwLocations.map(x => screwHole(...x)));
+let screwHoles = (current = empty()) => {
+    return union(current, ...screwLocations.map(x => screwHole(...x)));
 };
 
-let screwHoleHoles = () => {
-    return union(...screwLocations.map(x => screwHoleHole(...x)));
+let screwHoleHoles = (current = empty()) => {
+    return union(current, ...screwLocations.map(x => screwHoleHole(...x)));
 };
 
 // Lines across the bottom to hold up the pcb
-let support = () => {
+let support = (current = empty()) => {
     const supportWidth = 1;
     const supportLengthh = 4 + leeway;
     const supportLengthv = 2 + leeway;
@@ -94,37 +107,39 @@ let support = () => {
     }
 
     // All supports
-    return difference(
-        union(
-            horizontal(18),
-            horizontal(37),
-            horizontal(56),
-            horizontal(75),
-            // Vertical top
-            vertical(34, true),
-            vertical(60, true),
-            vertical(98, true),
-            vertical(136, true),
-            vertical(174, true),
-            vertical(212, true),
-            vertical(250, true),
-            // Vertical bottom
-            vertical(20, false),
-            vertical(70, false),
-            vertical(110, false),
-            vertical(148, false),
-            vertical(185, false),
-            vertical(215, false),
-            vertical(260, false),
-        ),
-        screwHoleHoles()
+    return union(current,
+        difference(
+            union(
+                horizontal(18),
+                horizontal(37),
+                horizontal(56),
+                horizontal(75),
+                // Vertical top
+                vertical(34, true),
+                vertical(60, true),
+                vertical(98, true),
+                vertical(136, true),
+                vertical(174, true),
+                vertical(212, true),
+                vertical(250, true),
+                // Vertical bottom
+                vertical(20, false),
+                vertical(70, false),
+                vertical(110, false),
+                vertical(148, false),
+                vertical(185, false),
+                vertical(215, false),
+                vertical(260, false),
+            ),
+            screwHoleHoles()
+        )
     );
 };
 
 // Usb insert
 // Hole consists of two half circles with one rectangle
 // Outer recess to help usb reach socket
-let usbHole = () => {
+let usbHole = (current = empty()) => {
     const innerWidth = 1.8;
     const yOffset = -0.2;
 
@@ -134,14 +149,23 @@ let usbHole = () => {
 
     const recessRadius = 7;
 
-    return union(
-        linear_extrude({height:widthy}, hull(circle(height/2), square([rectl, height]).translate([height/2, 0]), circle(height/2).translate([rectl,0]))).rotateX(-90).translate([14, innery - leeway, yOffset]), // hole
-        linear_extrude({height:widthy - innerWidth}, circle(recessRadius)).rotateX(-90).translate([14+1.5 * height -recessRadius, innery + innerWidth - leeway, yOffset - 1.5 + recessRadius])
+    return difference(
+        current,
+        union(
+            linear_extrude({height:widthy}, hull(circle(height/2), square([rectl, height]).translate([height/2, 0]), circle(height/2).translate([rectl,0]))).rotateX(-90).translate([14, innery - leeway, yOffset]), // hole
+            linear_extrude({height:widthy - innerWidth}, circle(recessRadius)).rotateX(-90).translate([14+1.5 * height -recessRadius, innery + innerWidth - leeway, yOffset - 1.5 + recessRadius])
+        )
     );
 };
 
+let powerSwitch = (current = empty()) => {
+
+
+    return difference(current, cube({size:[9, 3.3, 10]}).translate([25, 47-3.3, -10-3.3]));
+}
+
 // Main frame
-let frame = () => {
+let frame = (current = empty()) => {
     // Bottom
     let bottom = square([outerx, bottomThickness / cos(angle)])
         .extrude({offset:[0, (outery) * tan(angle), outery]})
@@ -155,17 +179,15 @@ let frame = () => {
         cube({size:[outerx, outery/cos(angle)+1, -outery*sin(angle)-1]}).rotateX(-angle).translate([-widthx, -widthy, outery * tan(angle)]) // Angle
     ).translate([-leeway,-leeway,-(depth + outery * tan(angle))]);
 
-    return union(
-        difference(
-            side, 
-            usbHole()
-        ), 
-        bottom, 
-        screwHoles(),
-        support(),
-    );
+    return union(current, side, bottom);
 }
 
 function main() {
-    return frame();
+    return apply(
+        frame,
+        usbHole,
+        screwHoles,
+        support,
+        powerSwitch,
+    )
 }
